@@ -30,4 +30,43 @@ void launch_flash_prefill(
     float scale, bool causal, cudaStream_t stream = nullptr
 );
 
+// --- Qwen3.5-35B-A3B specialized kernels ---
+
+// Flash decode for 8:1 GQA (16 Q heads / 2 KV heads), head_dim=128.
+// 8 warps per CTA share one KV tile load.
+void launch_flash_decode_gqa8(
+    const void* q, const void* k_pool, const void* v_pool,
+    const int* block_table, const int* seq_lens,
+    void* out,
+    int num_seqs, int num_kv_heads,
+    int head_dim, int block_size, int max_blocks_per_seq,
+    float scale, cudaStream_t stream = nullptr
+);
+
+// --- Gemma 4 26B-A4B specialized kernels ---
+
+// Flash decode for LOCAL layers: sliding-window (1024 tokens), head_dim=256, GQA 2:1.
+// 2 warps per CTA (one per Q-head pair), KV capped at window_size blocks.
+void launch_flash_decode_local_hd256(
+    const void* q, const void* k_pool, const void* v_pool,
+    const int* block_table, const int* seq_lens,
+    void* out,
+    int num_seqs, int num_kv_heads,
+    int block_size, int max_blocks_per_window,
+    float scale, cudaStream_t stream = nullptr
+);
+
+// Flash decode for GLOBAL layers: full context, head_dim=512, GQA 8:1.
+// Two-phase dot product splits 512-dim head into two 256-dim halves.
+// NOTE: No public FlashInfer/vLLM kernel handles head_dim=512 — this is novel.
+// 8 warps per CTA (one per Q-head in GQA group), 64 KB smem (fits Blackwell).
+void launch_flash_decode_global_hd512(
+    const void* q, const void* k_pool, const void* v_pool,
+    const int* block_table, const int* seq_lens,
+    void* out,
+    int num_seqs, int num_kv_heads,
+    int block_size, int max_blocks_per_seq,
+    float scale, cudaStream_t stream = nullptr
+);
+
 }} // namespace blackwell::kernels
