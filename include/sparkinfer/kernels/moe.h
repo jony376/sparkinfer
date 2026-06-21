@@ -51,4 +51,16 @@ void launch_moe_expert_ffn(
     int hidden_dim, int ffn_dim,
     cudaStream_t stream = nullptr);
 
+// Fused quantized expert FFN (decode-optimized): dequantizes only the top_k
+// routed experts on-read, one warp per output row. gate_q/up_q are Q4_K
+// [num_experts, ffn, hidden], down_q is Q6_K [num_experts, hidden, ffn] (GGUF
+// native layout). h_scratch: [num_tokens*top_k*ffn] fp32; out_scratch:
+// [num_tokens*hidden] fp32. output: [num_tokens, hidden] bf16. hidden,ffn % 256 == 0.
+void launch_moe_expert_ffn_q4k(
+    const void* input, const void* gate_q, const void* up_q, const void* down_q,
+    const int* expert_ids, const float* expert_weights, void* output,
+    float* h_scratch, float* out_scratch,
+    int num_tokens, int top_k, int hidden, int ffn,
+    cudaStream_t stream = nullptr);
+
 }} // namespace sparkinfer::kernels
