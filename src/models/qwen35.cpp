@@ -137,6 +137,7 @@ int Qwen35Model::forward_token(int token_id, int position) {
             kernels::launch_moe_router(s.mf_logits, s.mf_ids, s.mf_weights, s.mf_counts,
                                        1, c.n_experts, c.top_k, 1, st);
             kernels::launch_moe_expert_ffn_q4k(s.hn, w.gate_q, w.up_q, w.down_q,
+                                               w.gate_qtype, w.up_qtype, w.down_qtype,
                                                s.mf_ids, s.mf_weights, s.routed, s.mf_h, s.mf_out,
                                                1, c.top_k, c.hidden, c.moe_ffn, st);
         } else {
