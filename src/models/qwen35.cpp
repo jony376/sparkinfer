@@ -19,6 +19,7 @@
 #include <cuda_runtime.h>
 #include <cstdio>
 #include <cmath>
+#include <chrono>
 #include <vector>
 #include <string>
 #include <fstream>
@@ -158,6 +159,21 @@ int Qwen35Model::forward_token(int token_id, int position) {
     cu(cudaMemcpyAsync(&out_id, s.d_out_id, sizeof(int), cudaMemcpyDeviceToHost, st), "out_id");
     cu(cudaStreamSynchronize(st), "sync");
     return out_id;
+}
+
+double Qwen35Model::bench_decode(int warmup, int n) {
+    Impl& s = *p_;
+    if (!s.kv->allocate(s.seq_id, s.cfg.max_seq)) { fprintf(stderr, "[bench] kv allocate failed\n"); return -1; }
+    int pos = 0, tok = 100;
+    for (int i = 0; i < warmup; i++) { tok = forward_token(tok, pos++); if (tok < 0 || tok >= s.cfg.vocab) tok = 100; }
+    cudaDeviceSynchronize();
+    auto t0 = std::chrono::high_resolution_clock::now();
+    for (int i = 0; i < n; i++) { tok = forward_token(tok, pos++); if (tok < 0 || tok >= s.cfg.vocab) tok = 100; }
+    cudaDeviceSynchronize();
+    auto t1 = std::chrono::high_resolution_clock::now();
+    s.kv->free(s.seq_id);
+    double secs = std::chrono::duration<double>(t1 - t0).count();
+    return n / secs;
 }
 
 std::vector<int> Qwen35Model::generate(const std::vector<int>& prompt, int max_new) {

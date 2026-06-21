@@ -84,6 +84,10 @@ public:
     // Run one token at `position`, return the argmax next-token id.
     int forward_token(int token_id, int position);
 
+    // Steady-state decode throughput benchmark: runs `warmup` untimed decode
+    // steps then times `n_tokens` more. Returns tokens/sec. Requires weights.
+    double bench_decode(int warmup, int n_tokens);
+
     const Qwen35Config& config() const;
 
 private:
