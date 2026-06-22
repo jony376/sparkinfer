@@ -37,8 +37,9 @@ TPS=$(printf '%s\n' "${ts[@]}" | sort -n | awk '{a[NR]=$1} END{print a[int((NR+1
 
 echo ">> [3/3] correctness — token-match / KL vs llama.cpp ..." >&2
 acc=$("$HERE/accuracy.sh" "$GGUF" 2>/dev/null || true)
-TOP1=$(printf '%s\n' "$acc" | sed -n 's/.*token-match.*= \([0-9.][0-9.]*\).*/\1/p' | head -1)
-KL=$(printf   '%s\n' "$acc" | sed -n 's/.*mean KL[^0-9]*\([0-9.][0-9.]*\).*/\1/p' | head -1)
+# parse the unambiguous METRIC line (not the human-readable text, which contains "bar >= 0.90")
+TOP1=$(printf '%s\n' "$acc" | sed -n 's/.*METRIC .*top1=\([0-9.][0-9.]*\).*/\1/p' | head -1)
+KL=$(printf   '%s\n' "$acc" | sed -n 's/.*METRIC .*kl=\([0-9.][0-9.]*\).*/\1/p' | head -1)
 TOP1="${TOP1:-0}"; KL="${KL:-99}"
 
 python3 "$HERE/label.py" "$TPS" "$FRONTIER" "$CEILING" "$TOP1" "$KL" "$COMMIT"
