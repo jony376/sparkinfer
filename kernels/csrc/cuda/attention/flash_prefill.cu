@@ -48,7 +48,9 @@ __global__ void flash_prefill_kernel(
     #pragma unroll
     for (int e = 0; e < ELEMS; e++) acc[e] = 0.f;
 
-    const int kv_end = causal ? min(seqlen_kv, qpos + 1) : seqlen_kv;
+    // Causal: query position qpos maps to absolute KV position qpos + (seqlen_kv - seqlen_q)
+    // and may attend through it inclusive. Reduces to qpos+1 when seqlen_q == seqlen_kv.
+    const int kv_end = causal ? min(seqlen_kv, qpos + 1 + (seqlen_kv - seqlen_q)) : seqlen_kv;
     for (int t = 0; t < kv_end; t++) {
         const size_t kv_off = (((size_t)b * seqlen_kv + t) * num_kv_heads + kv_head) * HEAD_DIM;
         float partial = 0.f;
