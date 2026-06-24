@@ -35,7 +35,15 @@ def sh(host, port, cmd, timeout=3600):
          "-p", str(port), f"root@{host}", cmd], capture_output=True, text=True, timeout=timeout)
 
 def info_of(v, iid):
-    return next((i for i in v.show_instances() if i.get("id") == iid), None)
+    try:
+        result = v.show_instances_v1(params={"id": iid})
+        instances = result if isinstance(result, list) else result.get("instances", [])
+        hit = next((i for i in instances if i.get("id") == iid), None)
+        if hit is not None: return hit
+    except Exception: pass
+    # fallback to deprecated API in case v1 paginator misses the instance
+    try: return next((i for i in v.show_instances() if i.get("id") == iid), None)
+    except Exception: return None
 
 def endpoint(info):
     """Prefer the DIRECT endpoint (public_ipaddr + mapped :22) — the vast SSH proxy authenticates
