@@ -166,7 +166,7 @@ def main():
     ap.add_argument("--destroy", action="store_true", help="destroy after eval instead of stopping (also frees the disk)")
     ap.add_argument("--gpu", default="RTX_5090")
     ap.add_argument("--image", default=IMAGE)
-    ap.add_argument("--reuse-timeout", type=int, default=120, help="seconds to wait for a reused box before recreating (default 120 = 2 min)")
+    ap.add_argument("--reuse-timeout", type=int, default=300, help="seconds to wait for a reused box before recreating (default 300 = 5 min; a cold start of a stopped cached box can take minutes — destroying it prematurely wastes the 17GB cache)")
     ap.add_argument("--new-timeout", type=int, default=480, help="seconds to wait for a freshly created box (default 480 = 8 min)")
     ap.add_argument("--no-recreate", action="store_true", help="on reuse failure, error out instead of provisioning a new box")
     ap.add_argument("--destroy-on-error", action="store_true", help="destroy (not just stop) the instance if the eval produces no result")
@@ -255,11 +255,11 @@ def main():
             f"elif [ -f '{MODEL_READY}' ]; then echo already_running; "
             f"else mkdir -p /workspace/models && rm -f '{MODEL_READY}'; "
             f"nohup bash -c '"
-            f"  HF_HUB_DISABLE_XET=1 python3 -m huggingface_hub download Qwen/Qwen3-30B-A3B-GGUF "
+            f"  HF_HUB_DISABLE_XET=1 hf download Qwen/Qwen3-30B-A3B-GGUF "
             f"    Qwen3-30B-A3B-Q4_K_M.gguf --local-dir /workspace/models >>/tmp/dl.log 2>&1 "
             f"  || curl -fL -C - https://huggingface.co/Qwen/Qwen3-30B-A3B-GGUF/resolve/main/Qwen3-30B-A3B-Q4_K_M.gguf"
             f"       -o {MODEL_PATH} >>/tmp/dl.log 2>&1; "
-            f"  touch {MODEL_READY}"
+            f"  [ -f {MODEL_PATH} ] && touch {MODEL_READY}"
             f"' >/dev/null 2>&1 & echo started; fi"
         )
         pr = sh(host, port, prefetch, timeout=30)
@@ -270,6 +270,10 @@ def main():
             print(f">> model download started in background ({status}) — polling for completion ...")
             if not wait_model(host, port):
                 print("!! model download timed out — evaluate.sh will retry (may add time)")
+
+        # Reap any leftover reference server / runner from a previous PR on this kept-alive box —
+        # a leaked llama-server holding port 8081 would make this PR's accuracy.sh fail to bind.
+        sh(host, port, "pkill -f llama-server 2>/dev/null; pkill -f qwen3_gguf 2>/dev/null; sleep 1; true", timeout=30)
 
         # Trust: grade with the harness from the protected default branch, not the submission's copy.
         # The build still measures the PR's kernels/runtime/moe; only bench/scripts (the scoring code,

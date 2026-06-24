@@ -173,10 +173,15 @@ def main():
     # the box mid-queue. The bot stops the instance once after ALL PRs finish (or if the instance
     # dies, subsequent PRs self-heal by provisioning a new one).
     for i, (pr, num, branch, oid, ref, areas) in enumerate(pending):
-        print(f"PR #{num} @ {oid}: evaluating '{ref}' ...")
+        # Re-read the frontier each iteration: a PR that passed earlier in THIS run may have
+        # ratcheted it (update_dashboard writes data.json), and later PRs must be graded against
+        # the new best — otherwise two PRs could both "beat" the same stale baseline.
+        d = load_dash()
+        cur_frontier = d["status"]["frontier_tps"] if d else frontier
+        print(f"PR #{num} @ {oid}: evaluating '{ref}' (frontier={cur_frontier}) ...")
         r = subprocess.run([sys.executable, os.path.join(HERE, "vast_eval.py"),
                             "--reuse", str(current_instance(args.instance)), "--ref", ref,
-                            "--frontier", str(frontier), "--ceiling", str(args.ceiling),
+                            "--frontier", str(cur_frontier), "--ceiling", str(args.ceiling),
                             "--keep"],          # keep instance alive — bot stops it after all PRs
                            cwd=ROOT, capture_output=True, text=True, timeout=14400)
         # If vast_eval self-healed to a new instance, track the new id for the next PR.
