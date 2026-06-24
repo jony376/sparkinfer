@@ -20,7 +20,8 @@ ensure_sparkinfer() {  # $1 = arch
   [ -x "$ROOT/build/runtime/qwen3_gguf_bench" ] && [ -x "$ROOT/build/runtime/qwen3_gguf_score" ] && return
   echo ">> building sparkinfer (sm_$1) ..." >&2
   cmake -S "$ROOT" -B "$ROOT/build" -DCMAKE_CUDA_ARCHITECTURES="$1" -DCMAKE_BUILD_TYPE=Release >/dev/null
-  cmake --build "$ROOT/build" -j"$(nproc)" >/dev/null
+  # Cap at 4 parallel jobs — cc1plus for sm_120 uses ~1-2 GB RAM each; uncapped nproc OOMs on GPU boxes.
+  cmake --build "$ROOT/build" -j4 >/dev/null
 }
 
 ensure_model() {
@@ -46,7 +47,7 @@ ensure_llamacpp() {  # $1 = arch ; builds llama-bench + llama-server (one-time, 
   [ -d "$LLAMACPP_DIR/.git" ] || git clone --depth=1 https://github.com/ggml-org/llama.cpp "$LLAMACPP_DIR" >&2
   cmake -S "$LLAMACPP_DIR" -B "$LLAMACPP_DIR/build" -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES="$1" \
         -DCMAKE_BUILD_TYPE=Release -DLLAMA_CURL=OFF >/dev/null 2>&1
-  cmake --build "$LLAMACPP_DIR/build" -j"$(nproc)" --target llama-bench llama-server >/dev/null 2>&1
+  cmake --build "$LLAMACPP_DIR/build" -j4 --target llama-bench llama-server >/dev/null 2>&1
 }
 
 # ---- prebuilt binaries (GitHub release) with source-build fallback ----
