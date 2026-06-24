@@ -30,10 +30,13 @@ LLAMACPP_DIR = os.environ.get("LLAMACPP_DIR", "/workspace/.llamacpp")           
 INSTANCE_FILE = os.path.expanduser(os.environ.get("VAST_INSTANCE_FILE", "~/.sparkinfer_vast_instance"))  # self-healed id
 
 def sh(host, port, cmd, timeout=3600):
-    return subprocess.run(
-        ["ssh", "-i", SSH_KEY, "-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes",
-         "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=40",
-         "-p", str(port), f"root@{host}", cmd], capture_output=True, text=True, timeout=timeout)
+    try:
+        return subprocess.run(
+            ["ssh", "-i", SSH_KEY, "-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes",
+             "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=40",
+             "-p", str(port), f"root@{host}", cmd], capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess([], 1, stdout="", stderr=f"ssh timeout after {timeout}s")
 
 def info_of(v, iid):
     try:
@@ -213,7 +216,7 @@ def main():
         """Poll until the model file is fully downloaded (sentinel file appears)."""
         deadline = time.time() + timeout
         while time.time() < deadline:
-            r = sh(host, port, f"test -f '{MODEL_READY}' && echo yes || echo no", timeout=30)
+            r = sh(host, port, f"test -f '{MODEL_READY}' && echo yes || echo no", timeout=60)
             if r.returncode == 0 and r.stdout.strip() == "yes":
                 return True
             elapsed = int(deadline - time.time())
@@ -268,6 +271,7 @@ def main():
         ev = (f"cd /root/sparkinfer && git fetch -q origin main && git checkout -q origin/main -- bench/scripts && "
               f"SI_NO_CHECKOUT=1 MODELS_DIR=/workspace/models LLAMACPP_DIR={LLAMACPP_DIR} "
               f"bench/scripts/evaluate.sh --ref {args.ref} --frontier {args.frontier} --ceiling {args.ceiling}")
+        got_result = False
         r = sh(host, port, ev, timeout=10800)
         sys.stdout.write(r.stdout[-4000:])
         line = next((l for l in r.stdout.splitlines() if l.startswith("RESULT_JSON")), None)
