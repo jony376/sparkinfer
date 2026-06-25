@@ -233,16 +233,23 @@ def apply_area_labels(repo, num, areas):
 def render(res, oid):
     label = res.get("label", "?")
     icon = {"REJECT": "❌", "none": "⚪", "BASELINE": "📊"}.get(label, "✅")
+    # A passing speedup (XL/L/M/S/XS) clears the significance gate, so its tps becomes the NEW frontier.
+    advanced = label in {"XL", "L", "M", "S", "XS"} and res.get("pass")
     rows = [f"| **label** | `eval:{label}` |",
             f"| decode | {res.get('tps','?')} tok/s |",
             f"| correctness | top-1 {res.get('top1',0)*100:.1f}% · KL {res.get('kl','?')} |"]
     if "frontier_tps" in res and res["frontier_tps"]:
-        rows.insert(2, f"| vs frontier | {res['frontier_tps']} tok/s → "
+        # Label it "prior frontier" when this PR superseded it, so the old value isn't mistaken
+        # for the current live frontier (which is now this PR's tps).
+        rows.insert(2, f"| {'vs prior frontier' if advanced else 'vs frontier'} | {res['frontier_tps']} tok/s → "
                        f"{res.get('pct_over_frontier', 0):+.1f}% ({res.get('delta_tps',0):+.1f}) |")
+    if advanced:
+        rows.insert(3, f"| **→ new frontier** | **{res.get('tps')} tok/s** |")
     note = {"REJECT": f"Failed the correctness gate: {res.get('reason','')}. Not a valid submission.",
             "none": "Within the significance gate — no *verified* speedup over the current frontier.",
             "BASELINE": "No frontier was set; this run establishes it."
-            }.get(label, "Verified speedup over the live frontier.")
+            }.get(label, f"Verified speedup — **sets the new frontier to {res.get('tps')} tok/s** "
+                         f"(was {res.get('frontier_tps','?')}).")
     return (f"<!-- sparkinfer-eval:{oid} -->\n"
             f"## {icon} sparkinfer auto-eval — `{oid}`\n\n"
             f"| metric | value |\n|---|---|\n" + "\n".join(rows) + "\n\n"
