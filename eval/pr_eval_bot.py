@@ -412,7 +412,7 @@ def main():
         # PENALTY_DAYS (from the first strike). During the window the bot does NOT greenlight any of
         # their PRs — it applies `penalty` and skips, instead of `test-on-5090`.
         pen_until = author_penalty_until(pr_author.get(num, "?"))
-        if pen_until:
+        if pen_until and FORCE_LABEL not in {l["name"] for l in pr.get("labels", [])}:
             print(f"PR #{num}: author {pr_author.get(num,'?')} under copycat penalty until {pen_until} "
                   f"— {PENALTY_LABEL}, skip eval")
             if not args.dry_run:
