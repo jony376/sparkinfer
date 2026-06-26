@@ -35,7 +35,7 @@ INSTANCE_FILE = os.path.expanduser(os.environ.get("VAST_INSTANCE_FILE", "~/.spar
 # IPs of hosts that repeatedly hang on image pull or never expose direct SSH, despite high vast
 # "reliability" scores (which track uptime, not image-pull / direct-SSH success). Whack-a-mole, but
 # the offending set is small and recurring. Override/extend via VAST_SKIP_HOSTS (comma-separated).
-_DEFAULT_SKIP = "94.177.17.69,120.238.149.205,192.3.91.246,47.253.144.202"
+_DEFAULT_SKIP = "94.177.17.69,120.238.149.205,192.3.91.246,47.253.144.202,175.121.93.64,180.70.178.129"
 SKIP_HOSTS_PERMANENT = set(filter(None, os.environ.get("VAST_SKIP_HOSTS", _DEFAULT_SKIP).split(",")))
 
 def sh(host, port, cmd, timeout=3600):
@@ -236,6 +236,10 @@ def main():
 
     MODEL_PATH = "/workspace/models/Qwen3-30B-A3B-Q4_K_M.gguf"
     MODEL_READY = "/tmp/sparkinfer_model_ready"
+    # HuggingFace is throttled to ~KB/s from many vast hosts, so pull the GGUF from Google Drive
+    # first (gdown handles the large-file confirm token), then fall back to HF/curl. Override the
+    # Drive file id with MODEL_GDRIVE_ID="" to disable and use HF only.
+    MODEL_GDRIVE_ID = os.environ.get("MODEL_GDRIVE_ID", "1BSLqKBs_Bo6up7YlFqwvRXuuQ4z0GcQf")
 
     def wait_model(host, port, timeout=2700):
         """Poll until the model file is fully downloaded (sentinel file appears)."""
@@ -283,8 +287,16 @@ def main():
             f"elif [ -f '{MODEL_READY}' ]; then echo already_running; "
             f"else mkdir -p /workspace/models && rm -f '{MODEL_READY}'; "
             f"nohup bash -c '"
-            f"  HF_HUB_DISABLE_XET=1 hf download Qwen/Qwen3-30B-A3B-GGUF "
-            f"    Qwen3-30B-A3B-Q4_K_M.gguf --local-dir /workspace/models >>/tmp/dl.log 2>&1 "
+            f"  gid=\"{MODEL_GDRIVE_ID}\"; "
+            f"  if [ -n \"$gid\" ]; then pip install -q gdown 2>>/tmp/dl.log; "
+            f"    gdown --no-cookies -q \"$gid\" -O {MODEL_PATH}.part >>/tmp/dl.log 2>&1; "
+            f"    sz=$(stat -c%s {MODEL_PATH}.part 2>/dev/null || echo 0); "
+            f"    if [ \"$sz\" -gt 10000000000 ]; then mv -f {MODEL_PATH}.part {MODEL_PATH}; "
+            f"    else echo \"gdrive failed (sz=$sz) -> HF\" >>/tmp/dl.log; rm -f {MODEL_PATH}.part; fi; "
+            f"  fi; "
+            f"  [ -f {MODEL_PATH} ] "
+            f"  || HF_HUB_DISABLE_XET=1 hf download Qwen/Qwen3-30B-A3B-GGUF "
+            f"       Qwen3-30B-A3B-Q4_K_M.gguf --local-dir /workspace/models >>/tmp/dl.log 2>&1 "
             f"  || curl -fL -C - https://huggingface.co/Qwen/Qwen3-30B-A3B-GGUF/resolve/main/Qwen3-30B-A3B-Q4_K_M.gguf"
             f"       -o {MODEL_PATH} >>/tmp/dl.log 2>&1; "
             f"  [ -f {MODEL_PATH} ] && touch {MODEL_READY}"
