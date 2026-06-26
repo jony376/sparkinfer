@@ -35,7 +35,7 @@ bench/scripts/accuracy.sh --download
 - **mean KL ≈ 0** (the next-token distributions barely move).
 
 (`accuracy.sh` also compares against llama.cpp; the implementation bar there is ≥ 90%
-top-1, which we currently meet at 100%.) If `compute-sanitizer` is available, your kernels
+top-1, currently met at ~96–99%.) If `compute-sanitizer` is available, your kernels
 must be clean (0 errors).
 
 ## How rewards work (SN74)
@@ -65,7 +65,21 @@ passes the gate (box ticked + real before<after decode numbers).
 
 > ⚠️ Tick that box **only if you actually ran it on an RTX 5090** and pasted the benchmark log.
 > Checking it without testing is false attestation — it is treated as gaming and the account will
-> be **blocked** (added to the denylist), the same as copycatting or sybil farming.
+> be **blocked** (added to the denylist), the same as sybil farming.
+
+### Anti-gaming (how submissions are kept honest)
+
+The bot evaluates PRs **oldest-first** and fingerprints each diff, so gaming is caught automatically:
+
+- **Copycatting.** Re-submitting an earlier PR's diff — *even with a few extra lines bolted on to
+  look original or slip past the evaluator* — is flagged by diff-containment fingerprint. A first
+  copycat strike **freezes all your evaluations for 5 days** (`penalty` label, skipped; PRs already
+  scored keep their result); a **second strike blocks** the account. Logged in
+  [`.github/copycats.json`](.github/copycats.json) / [`COPYCATS.md`](.github/COPYCATS.md).
+- **Sybil / duplicate-account farming** (one operator pushing under multiple GitHub identities, or
+  shadowing others' work) is blocked outright; evidence is recorded in [`.github/FLAGGED.md`](.github/FLAGGED.md).
+- **No override.** There is no way to force-evaluate around the gate — not even for a maintainer.
+  Real, original, frontier-advancing work is the only thing that scores.
 
 ## Maintainer-owned paths (eval, scoring & governance)
 
