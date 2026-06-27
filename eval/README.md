@@ -65,6 +65,14 @@ crontab -l 2>/dev/null; echo "0 */2 * * * $PWD/eval/run_bot_cron.sh >> /tmp/spar
 Each run: reuse the pinned instance if it survived, else provision fresh (Google Drive model) →
 evaluate new PR commits → **stop it again** → label + comment. Disable with `crontab -e`. Needs `gh` authenticated and the vast key saved (`vastai set api-key`).
 
+**Dashboard merge-sync (no GPU).** The heavy eval cron records a merge only on its next tick, so a
+*manual* merge leaves the dashboard stale while it's paused. Run `run_sync_cron.sh` every 15 min
+alongside it — it just records merged `merge-first` PRs onto the frontier/journey and reconciles
+labels (never evaluates, never merges), sharing the eval lock so the two never overlap:
+```bash
+crontab -l 2>/dev/null; echo "*/15 * * * * $PWD/eval/run_sync_cron.sh >> /tmp/sparkinfer_sync.log 2>&1" | crontab -
+```
+
 (For a Claude-agent flavor instead of system cron — e.g. to add LLM anti-gaming triage of the diff
 before labeling — schedule a recurring agent that shells out to `pr_eval_bot.py`; the numeric label
 still comes from the deterministic evaluator so validators converge.)
