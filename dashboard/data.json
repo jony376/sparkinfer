@@ -82,6 +82,19 @@
   ],
   "prs": [
     {
+      "num": 72,
+      "title": "perf(gemm): split-K the router projection GEMV for decode occupancy (+3% decode)",
+      "areas": [
+        "kernels"
+      ],
+      "label": "M",
+      "tps": 384.11,
+      "delta_pct": 8.0,
+      "top1": 0.97,
+      "kl": 0.1417,
+      "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/72"
+    },
+    {
       "num": 76,
       "title": "perf(attn): fuse per-head Q/K-norm and Q/K rope into single kernels (+4.1% decode)",
       "areas": [
@@ -107,19 +120,6 @@
       "top1": 0.95,
       "kl": 0.1415,
       "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/73"
-    },
-    {
-      "num": 72,
-      "title": "perf(gemm): split-K the router projection GEMV for decode occupancy (+3% decode)",
-      "areas": [
-        "kernels"
-      ],
-      "label": "XS",
-      "tps": 367.61,
-      "delta_pct": 3.4,
-      "top1": 0.99,
-      "kl": 0.1417,
-      "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/72"
     },
     {
       "num": 67,
