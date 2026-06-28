@@ -1,5 +1,5 @@
 {
-  "updated": "2026-06-27",
+  "updated": "2026-06-28",
   "status": {
     "gpu": "RTX 5090 · sm_120 · CUDA 13",
     "model": "Qwen3-30B-A3B · Q4_K_M",
@@ -81,6 +81,19 @@
     }
   ],
   "prs": [
+    {
+      "num": 72,
+      "title": "perf(gemm): split-K the router projection GEMV for decode occupancy (+3% decode)",
+      "areas": [
+        "kernels"
+      ],
+      "label": "XS",
+      "tps": 331.89,
+      "delta_pct": 3.5,
+      "top1": 0.97,
+      "kl": 0.1428,
+      "url": "https://github.com/gittensor-ai-lab/sparkinfer/pull/72"
+    },
     {
       "num": 71,
       "title": "perf(moe): int8 dp4a MMVQ for the Q4_K MoE down projection (+5% decode)",
