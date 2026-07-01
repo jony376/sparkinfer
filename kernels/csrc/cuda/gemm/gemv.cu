@@ -425,8 +425,40 @@ __global__ void si_mmvq_q4k_kernel(const si_block_q8_1* __restrict__ vy, const u
     if (lane == 0) gemv_write(y + row, tmp);
 }
 
+template <typename OutT>
+__global__ void si_mmvq_q4k_batch_kernel(const si_block_q8_1* __restrict__ vy,
+                                         const unsigned char* __restrict__ W,
+                                         OutT* __restrict__ y, int N, int K) {
+    constexpr int NW = 4, WS = 32, vdr = 2, qi = 32, RPB = 8;
+    const int warp = threadIdx.x >> 5, lane = threadIdx.x & 31;
+    const int row_local = warp / NW, wloc = warp % NW;
+    const int tid_row = row_local * (NW * WS) + wloc * WS + lane;
+    const int row = blockIdx.x * RPB + row_local;
+    const bool active = row < N;
+    float tmp = 0.f;
+    if (active) {
+        const si_block_q4_K* x_row = (const si_block_q4_K*)(W + (size_t)row * (K >> 8) * 144);
+        const int blocks_per_row = K >> 8, blocks_per_iter = vdr * NW * WS / qi;
+        for (int kbx = tid_row / (qi / vdr); kbx < blocks_per_row; kbx += blocks_per_iter) {
+            const int kby = kbx * 8, kqs = vdr * (tid_row % (qi / vdr));
+            tmp += si_vec_dot_q4_K(x_row + kbx, vy + kby, kqs);
+        }
+    }
+    __shared__ float tmp_shared[RPB][NW - 1][WS];
+    if (active && wloc > 0) tmp_shared[row_local][wloc - 1][lane] = tmp;
+    __syncthreads();
+    if (!active || wloc > 0) return;
+    #pragma unroll
+    for (int l = 0; l < NW - 1; l++) tmp += tmp_shared[row_local][l][lane];
+    #pragma unroll
+    for (int m = 16; m > 0; m >>= 1) tmp += __shfl_xor_sync(0xffffffff, tmp, m);
+    if (lane == 0) gemv_write(y + row, tmp);
+}
+
 template __global__ void si_mmvq_q4k_kernel<__nv_bfloat16>(const si_block_q8_1*, const unsigned char*, __nv_bfloat16*, int, int);
 template __global__ void si_mmvq_q4k_kernel<float>(const si_block_q8_1*, const unsigned char*, float*, int, int);
+template __global__ void si_mmvq_q4k_batch_kernel<__nv_bfloat16>(const si_block_q8_1*, const unsigned char*, __nv_bfloat16*, int, int);
+template __global__ void si_mmvq_q4k_batch_kernel<float>(const si_block_q8_1*, const unsigned char*, float*, int, int);
 
 // ===== faithful llama Q6_K mmvq for the fp32-path GEMVs (attn-V upgrades + LM head) =====
 // Same 4-warp-per-row structure as the Q4_K mmvq, with vec_dot_q6_K_q8_1 (coalesced
@@ -484,8 +516,41 @@ __global__ void si_mmvq_q6k_kernel(const si_block_q8_1* __restrict__ vy, const u
     for (int m = 16; m > 0; m >>= 1) tmp += __shfl_xor_sync(0xffffffff, tmp, m);
     if (lane == 0) gemv_write(y + row, tmp);
 }
+
+template <typename OutT>
+__global__ void si_mmvq_q6k_batch_kernel(const si_block_q8_1* __restrict__ vy,
+                                         const unsigned char* __restrict__ W,
+                                         OutT* __restrict__ y, int N, int K) {
+    constexpr int NW = 4, WS = 32, vdr = 1, qi = 32, RPB = 8;
+    const int warp = threadIdx.x >> 5, lane = threadIdx.x & 31;
+    const int row_local = warp / NW, wloc = warp % NW;
+    const int tid_row = row_local * (NW * WS) + wloc * WS + lane;
+    const int row = blockIdx.x * RPB + row_local;
+    const bool active = row < N;
+    float tmp = 0.f;
+    if (active) {
+        const unsigned char* x_row = W + (size_t)row * (K >> 8) * 210;
+        const int blocks_per_row = K >> 8, blocks_per_iter = vdr * NW * WS / qi;
+        for (int kbx = tid_row / (qi / vdr); kbx < blocks_per_row; kbx += blocks_per_iter) {
+            const int kby = kbx * 8, kqs = vdr * (tid_row % (qi / vdr));
+            tmp += si_vec_dot_q6_K(x_row + (size_t)kbx * 210, vy + kby, kqs);
+        }
+    }
+    __shared__ float tmp_shared[RPB][NW - 1][WS];
+    if (active && wloc > 0) tmp_shared[row_local][wloc - 1][lane] = tmp;
+    __syncthreads();
+    if (!active || wloc > 0) return;
+    #pragma unroll
+    for (int l = 0; l < NW - 1; l++) tmp += tmp_shared[row_local][l][lane];
+    #pragma unroll
+    for (int m = 16; m > 0; m >>= 1) tmp += __shfl_xor_sync(0xffffffff, tmp, m);
+    if (lane == 0) gemv_write(y + row, tmp);
+}
+
 template __global__ void si_mmvq_q6k_kernel<__nv_bfloat16>(const si_block_q8_1*, const unsigned char*, __nv_bfloat16*, int, int);
 template __global__ void si_mmvq_q6k_kernel<float>(const si_block_q8_1*, const unsigned char*, float*, int, int);
+template __global__ void si_mmvq_q6k_batch_kernel<__nv_bfloat16>(const si_block_q8_1*, const unsigned char*, __nv_bfloat16*, int, int);
+template __global__ void si_mmvq_q6k_batch_kernel<float>(const si_block_q8_1*, const unsigned char*, float*, int, int);
 
 // 1-warp-per-row Q6_K dp4a GEMV: keeps the fp32 gemv_q block structure (GEMV_WPB rows/block,
 // well-occupied for large N like the LM head's 151936 rows) but dp4a instead of fp32 dequant.
@@ -624,22 +689,48 @@ void launch_quantize_q8_1_blocks(const void* x, void* y, int K, cudaStream_t str
         reinterpret_cast<const __nv_bfloat16*>(x), reinterpret_cast<si_block_q8_1*>(y), K);
 }
 void launch_mmvq_q4k(const void* q81, const void* W, void* y, int N, int K, cudaStream_t stream) {
-    si_mmvq_q4k_kernel<__nv_bfloat16><<<N, 4 * 32, 0, stream>>>(
-        reinterpret_cast<const si_block_q8_1*>(q81), reinterpret_cast<const unsigned char*>(W),
-        reinterpret_cast<__nv_bfloat16*>(y), N, K);
+    constexpr int RPB = 8;
+    if (N >= RPB) {
+        si_mmvq_q4k_batch_kernel<__nv_bfloat16><<<(N + RPB - 1) / RPB, RPB * 4 * 32, 0, stream>>>(
+            reinterpret_cast<const si_block_q8_1*>(q81), reinterpret_cast<const unsigned char*>(W),
+            reinterpret_cast<__nv_bfloat16*>(y), N, K);
+    } else {
+        si_mmvq_q4k_kernel<__nv_bfloat16><<<N, 4 * 32, 0, stream>>>(
+            reinterpret_cast<const si_block_q8_1*>(q81), reinterpret_cast<const unsigned char*>(W),
+            reinterpret_cast<__nv_bfloat16*>(y), N, K);
+    }
 }
 void launch_mmvq_q4k_f32(const void* q81, const void* W, float* y, int N, int K, cudaStream_t stream) {
-    si_mmvq_q4k_kernel<float><<<N, 4 * 32, 0, stream>>>(
-        reinterpret_cast<const si_block_q8_1*>(q81), reinterpret_cast<const unsigned char*>(W), y, N, K);
+    constexpr int RPB = 8;
+    if (N >= RPB) {
+        si_mmvq_q4k_batch_kernel<float><<<(N + RPB - 1) / RPB, RPB * 4 * 32, 0, stream>>>(
+            reinterpret_cast<const si_block_q8_1*>(q81), reinterpret_cast<const unsigned char*>(W), y, N, K);
+    } else {
+        si_mmvq_q4k_kernel<float><<<N, 4 * 32, 0, stream>>>(
+            reinterpret_cast<const si_block_q8_1*>(q81), reinterpret_cast<const unsigned char*>(W), y, N, K);
+    }
 }
 void launch_mmvq_q6k(const void* q81, const void* W, void* y, int N, int K, cudaStream_t stream) {
-    si_mmvq_q6k_kernel<__nv_bfloat16><<<N, 4 * 32, 0, stream>>>(
-        reinterpret_cast<const si_block_q8_1*>(q81), reinterpret_cast<const unsigned char*>(W),
-        reinterpret_cast<__nv_bfloat16*>(y), N, K);
+    constexpr int RPB = 8;
+    if (N >= RPB) {
+        si_mmvq_q6k_batch_kernel<__nv_bfloat16><<<(N + RPB - 1) / RPB, RPB * 4 * 32, 0, stream>>>(
+            reinterpret_cast<const si_block_q8_1*>(q81), reinterpret_cast<const unsigned char*>(W),
+            reinterpret_cast<__nv_bfloat16*>(y), N, K);
+    } else {
+        si_mmvq_q6k_kernel<__nv_bfloat16><<<N, 4 * 32, 0, stream>>>(
+            reinterpret_cast<const si_block_q8_1*>(q81), reinterpret_cast<const unsigned char*>(W),
+            reinterpret_cast<__nv_bfloat16*>(y), N, K);
+    }
 }
 void launch_mmvq_q6k_f32(const void* q81, const void* W, float* y, int N, int K, cudaStream_t stream) {
-    si_mmvq_q6k_kernel<float><<<N, 4 * 32, 0, stream>>>(
-        reinterpret_cast<const si_block_q8_1*>(q81), reinterpret_cast<const unsigned char*>(W), y, N, K);
+    constexpr int RPB = 8;
+    if (N >= RPB) {
+        si_mmvq_q6k_batch_kernel<float><<<(N + RPB - 1) / RPB, RPB * 4 * 32, 0, stream>>>(
+            reinterpret_cast<const si_block_q8_1*>(q81), reinterpret_cast<const unsigned char*>(W), y, N, K);
+    } else {
+        si_mmvq_q6k_kernel<float><<<N, 4 * 32, 0, stream>>>(
+            reinterpret_cast<const si_block_q8_1*>(q81), reinterpret_cast<const unsigned char*>(W), y, N, K);
+    }
 }
 void launch_gemv_q6k_dp4a_f32(const void* q81, const void* W, float* y, int N, int K, cudaStream_t stream) {
     dim3 grid((N + GEMV_WPB - 1) / GEMV_WPB);
